@@ -1,136 +1,179 @@
-# Fiber Feature Flag
+# Flaggo
 
-A simple, pluggable feature flag system for Go web applications using [Fiber](https://gofiber.io/). Supports both file-based and Redis-based storage backends.
+A framework-agnostic feature flag library for Go. Supports file-based and Redis-based storage, actor targeting, percentage rollouts, and an optional web dashboard.
 
 ## Features
 
-- Toggle feature flags at runtime via a web UI or API
+- Framework-agnostic — works with `net/http`, Fiber, Chi, Echo, or any Go HTTP framework
+- Actor-based targeting (e.g. enable a flag for specific users or regions)
+- Percentage rollouts with deterministic hashing
 - Pluggable storage: JSON file or Redis
+- Optional web dashboard with light/dark theme and search
+- Optional HTTP Basic Authentication
 - Thread-safe and production-ready
-- RESTful API for integration with your frontend or CI/CD
 
 ## Installation
 
 ```sh
-go get github.com/miqdadyyy/fiber-featureflag
+go get github.com/miqdadyyy/flaggo
 ```
 
-## Usage
+## Quick Start
 
-### 1. File-based Feature Flag Provider
+### File-based Provider
 
 ```go
+package main
+
 import (
-    "github.com/gofiber/fiber/v2"
-    "github.com/miqdadyyy/fiber-featureflag/featureflag"
-    "github.com/miqdadyyy/fiber-featureflag/providers"
+	"log"
+	"net/http"
+
+	"github.com/miqdadyyy/flaggo"
+	"github.com/miqdadyyy/flaggo/providers/fileprovider"
+	"github.com/miqdadyyy/flaggo/web"
 )
 
 func main() {
-    app := fiber.New()
+	fp, err := fileprovider.New(fileprovider.Options{
+		Path: "storage/flags.json",
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
 
-    fff := featureflag.NewFiberFeatureFlag(
-        providers.NewFileProvider(
-            providers.FileProviderOptions{Path: "storage/fff.json"},
-        ),
-    )
-    app.Use("/fff", fff.GetHandler)
+	ff := flaggo.New(fp)
 
-    app.Listen(":3000")
+	http.Handle("/flags", web.Handler(ff))
+	log.Fatal(http.ListenAndServe(":3000", nil))
 }
 ```
 
-> **Note:**  
-> Make sure the `storage/` directory exists and is writable by your application.
-
-### 2. Redis-based Feature Flag Provider
+### Redis-based Provider
 
 ```go
+package main
+
 import (
-    "github.com/gofiber/fiber/v2"
-    "github.com/miqdadyyy/fiber-featureflag/featureflag"
-    "github.com/miqdadyyy/fiber-featureflag/providers"
+	"log"
+	"net/http"
+
+	"github.com/miqdadyyy/flaggo"
+	"github.com/miqdadyyy/flaggo/providers/redisprovider"
+	"github.com/miqdadyyy/flaggo/web"
 )
 
 func main() {
-    app := fiber.New()
+	rp, err := redisprovider.New(redisprovider.Options{
+		Addr:   "redis://localhost:6379/0",
+		Prefix: "flaggo:",
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
 
-    fff := featureflag.NewFiberFeatureFlag(
-        providers.NewRedisProvider(
-            providers.RedisProviderOptions{
-                Addr:   "redis://localhost:6379/0",
-                Prefix: "fff:",
-            },
-        ),
-    )
-    app.Use("/fff", fff.GetHandler)
+	ff := flaggo.New(rp)
 
-    app.Listen(":3000")
+	http.Handle("/flags", web.Handler(ff))
+	log.Fatal(http.ListenAndServe(":3000", nil))
 }
 ```
 
 ## Programmatic Usage
 
-You can also use the feature flag system programmatically in your Go code:
+```go
+ctx := context.Background()
+
+// Check if a flag is enabled
+if ff.IsEnabled(ctx, "new-checkout") {
+	// new checkout flow
+}
+
+// Enable / disable / toggle
+ff.Enable(ctx, "new-checkout")
+ff.Disable(ctx, "new-checkout")
+ff.Toggle(ctx, "new-checkout")
+
+// Set full configuration
+ff.SetConfig(ctx, "new-checkout", flaggo.FlagConfig{
+	Enabled: true,
+	Rollout: 50, // 50% of sessions
+	Actors: map[string][]string{
+		"user_id": {"alice", "bob"},
+	},
+})
+
+// Pre-populate flags (new keys created as disabled, existing ones left unchanged)
+ff.Populate(ctx, []string{"feature-a", "feature-b"})
+```
+
+## Actor Targeting
+
+Attach an actor to the context to enable per-user or per-attribute targeting:
 
 ```go
-import (
-    "context"
-    "fmt"
-    "github.com/miqdadyyy/fiber-featureflag/featureflag"
-    "github.com/miqdadyyy/fiber-featureflag/providers"
-)
-
-fff := featureflag.NewFiberFeatureFlag(
-    providers.NewFileProvider(
-        providers.FileProviderOptions{Path: "storage/fff.json"},
-    ),
-)
-
-// Example of get feature flag status
-if fff.GetFeatureFlagStatus(context.Background(), "test") {
-    fmt.Println("Hey feature flag is enabled")
+actor := flaggo.Actor{
+	Attributes: map[string]string{
+		"user_id":    "alice",
+		"country":    "US",
+		"session_id": "abc123",
+	},
 }
 
-// Example of enabling a feature flag
-if err := fff.EnableFeatureFlag(context.Background(), "test"); err != nil {
-    fmt.Println("Failed to enable feature flag", err)
-} else {
-    fmt.Println("Feature flag enabled successfully")
-}
+ctx := flaggo.WithActor(context.Background(), actor)
 
-// Example of disabling a feature flag
-if err := fff.DisableFeatureFlag(context.Background(), "test"); err != nil {
-    fmt.Println("Failed to disable feature flag", err)
-} else {
-    fmt.Println("Feature flag disabled successfully")
+// Flag evaluation now considers actor attributes and rollout percentage
+if ff.IsEnabled(ctx, "premium-feature") {
+	// enabled for this actor
 }
+```
+
+Evaluation order:
+1. If the flag does not exist or is disabled → `false`
+2. If the actor matches any entry in the flag's actor list → `true`
+3. If `hash(flagKey + session_id) % 100 < rollout` → `true`
+4. Otherwise → `false`
+
+## Authentication
+
+Protect the dashboard and API with HTTP Basic Authentication:
+
+```go
+ff := flaggo.New(provider, flaggo.Config{
+	Username: "admin",
+	Password: "secret",
+})
 ```
 
 ## API Endpoints
 
-All endpoints are under the path you mount (e.g., `/fff`).
+The JSON API is available when requests include `Accept: application/json`.
 
-- `GET    /fff`  
-  Returns all feature flags as JSON.
+| Method | Query        | Description              | Body                                                                        |
+|--------|--------------|--------------------------|-----------------------------------------------------------------------------|
+| GET    |              | List all flags           | —                                                                           |
+| GET    | `?key=name`  | Get a specific flag      | —                                                                           |
+| POST   |              | Create or update a flag  | `{"key": "name", "enabled": true, "actors": {"user_id": ["alice"]}, "rollout": 50}` |
+| DELETE |              | Disable a flag           | `{"key": "name"}`                                                           |
+| PATCH  |              | Toggle a flag            | `{"key": "name"}`                                                           |
 
-- `GET    /fff?key=flag-name`  
-  Returns the status of a specific flag.
+## Web Dashboard
+![UI](./docs/sample-ui.png)
 
-- `POST   /fff`  
-  Create a flag.  
-  **Body:** `{ "key": "flag-name" }`
+Visit the handler path in your browser for a management UI with:
+- Create, toggle, and configure flags
+- Actor targeting and rollout percentage controls
+- Search/filter flags
+- Light and dark theme (follows system preference)
 
-- `DELETE /fff`  
-  Disable a flag.  
-  **Body:** `{ "key": "flag-name" }`
+## Custom Provider
 
-- `PATCH  /fff`  
-  Toggle a flag.  
-  **Body:** `{ "key": "flag-name" }`
+Implement the `Provider` interface to use your own storage backend:
 
-## Web UI
-
-Visit `/fff` in your browser for a simple management UI.
-
-![Feature Flag Web UI Sample](docs/sample-ui.png)
+```go
+type Provider interface {
+	Set(ctx context.Context, key string, config FlagConfig) error
+	Get(ctx context.Context, key string) (FlagConfig, bool)
+	All(ctx context.Context) (map[string]FlagConfig, error)
+}
+```
