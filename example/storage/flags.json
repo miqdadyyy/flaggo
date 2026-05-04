@@ -1,0 +1,13 @@
+{
+  "new-dashboard": {
+    "enabled": true,
+    "actors": {
+      "user_id": [
+        "user-1",
+        "user-2",
+        "user-5"
+      ]
+    },
+    "rollout": 0
+  }
+}

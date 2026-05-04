@@ -870,7 +870,7 @@ const indexView = `<!DOCTYPE html>
     const actors = collectActorRules('createActorRules');
 
     try {
-      const res = await apiFetch('POST', { key: name, enabled: true, rollout, actors: Object.keys(actors).length ? actors : null });
+      const res = await apiFetch('POST', { key: name, enabled: true, rollout, actors });
       if (res.ok) {
         const result = await res.json();
         featureFlags[name] = { enabled: result.enabled, rollout: result.rollout, actors: result.actors };
@@ -928,7 +928,7 @@ const indexView = `<!DOCTYPE html>
     const actors = collectActorRules('editActorRules');
 
     try {
-      const res = await apiFetch('POST', { key: name, rollout, actors: Object.keys(actors).length ? actors : null });
+      const res = await apiFetch('POST', { key: name, rollout, actors });
       if (res.ok) {
         const result = await res.json();
         featureFlags[name] = { enabled: result.enabled, rollout: result.rollout, actors: result.actors };

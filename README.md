@@ -1,6 +1,10 @@
 # Flaggo
 
+![Cover](./assets/cover.webp)
+
 A framework-agnostic feature flag library for Go. Supports file-based and Redis-based storage, actor targeting, percentage rollouts, and an optional web dashboard.
+
+![Demo](./assets/demo.gif)
 
 ## Features
 
@@ -158,7 +162,7 @@ The JSON API is available when requests include `Accept: application/json`.
 | PATCH  |              | Toggle a flag            | `{"key": "name"}`                                                           |
 
 ## Web Dashboard
-![UI](./docs/sample-ui.png)
+![UI](./assets/sample-ui.png)
 
 Visit the handler path in your browser for a management UI with:
 - Create, toggle, and configure flags
